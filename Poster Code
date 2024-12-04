@@ -1,0 +1,285 @@
+# Load packages
+library(dplyr)
+library(readr)
+library(ggpubr)
+library(viridis)
+library(broom)
+library(texreg)
+library(ggplot2)
+library(tidyverse)
+
+
+# Import data!
+bg = read_csv('New_Data(New Data).csv') %>%
+  # You need this step.
+  mutate(YEAR = factor(YEAR))
+
+# Check out some rows of the data!
+bg %>% head(20) 
+
+
+
+##### Readmissions Over Time + Factors ####
+
+# Filter data for California and Texas
+state_data <- data %>%
+  filter(BENE_GEO_DESC %in% c("CA", "TX"))
+
+# Summarize and differentiate by factors affecting readmissions
+readmission_factors <- state_data %>%
+  group_by(BENE_GEO_DESC, YEAR) %>%
+  summarise(
+    Total_Beneficiaries = sum(BENES_TOTAL_CNT),
+    Avg_Inpatient_Payment = mean(IP_MDCR_PYMT_PER_USER),
+    ER_Visits = sum(BENES_ER_VISITS_CNT),
+    Total_Readmissions = sum(ACUTE_HOSP_READMSN_CNT),
+    Tests_Per_User = mean(TESTS_MDCR_PYMT_PER_USER),
+    Imaging_Per_User = mean(IMGNG_MDCR_PYMT_PER_USER)
+  )
+
+# Print summarized data
+print(readmission_factors)
+
+# Visualization: Compare readmissions and factors by state
+ggplot(readmission_factors, aes(x = YEAR, y = Total_Readmissions, color = BENE_GEO_DESC)) +
+  geom_line(size = 1.2) +
+  geom_point(size = 2) +
+  labs(
+    title = "Readmissions Over Time: California vs Texas",
+    x = "Year",
+    y = "Total Readmissions",
+    color = "State"
+  ) +
+  theme_minimal()
+
+# Additional analysis: Correlation between factors and readmissions
+correlation_analysis <- state_data %>%
+  group_by(BENE_GEO_DESC) %>%
+  summarise(
+    Correlation_ER_Readmissions = cor(BENES_ER_VISITS_CNT, ACUTE_HOSP_READMSN_CNT),
+    Correlation_Tests_Readmissions = cor(TESTS_MDCR_PYMT_PER_USER, ACUTE_HOSP_READMSN_CNT),
+    Correlation_Imaging_Readmissions = cor(IMGNG_MDCR_PYMT_PER_USER, ACUTE_HOSP_READMSN_CNT)
+  )
+(correlation_analysis)
+
+
+
+
+
+
+##### Correlation and P_value per 100,000 beneficiaries ####
+
+
+# Filter data for California and Texas
+ca_data <- state_data %>% filter(BENE_GEO_DESC == "CA")
+tx_data <- state_data %>% filter(BENE_GEO_DESC == "TX")
+
+# Calculate per 100,000 beneficiaries for each factor
+ca_data$ER_Visits_Per_100k <- (ca_data$BENES_ER_VISITS_CNT / ca_data$BENES_TOTAL_CNT) * 100000
+ca_data$Tests_Per_100k <- (ca_data$TESTS_MDCR_PYMT_PER_USER / ca_data$BENES_TOTAL_CNT) * 100000
+ca_data$Imaging_Per_100k <- (ca_data$IMGNG_MDCR_PYMT_PER_USER / ca_data$BENES_TOTAL_CNT) * 100000
+
+tx_data$ER_Visits_Per_100k <- (tx_data$BENES_ER_VISITS_CNT / tx_data$BENES_TOTAL_CNT) * 100000
+tx_data$Tests_Per_100k <- (tx_data$TESTS_MDCR_PYMT_PER_USER / tx_data$BENES_TOTAL_CNT) * 100000
+tx_data$Imaging_Per_100k <- (tx_data$IMGNG_MDCR_PYMT_PER_USER / tx_data$BENES_TOTAL_CNT) * 100000
+
+# Define a function to calculate correlation and p-value
+calculate_correlation <- function(x, y) {
+  result <- cor.test(x, y, method = "pearson")
+  return(data.frame(Correlation = result$estimate, P_Value = result$p.value))
+}
+
+# Calculate for CA
+ca_er_readmissions <- calculate_correlation(ca_data$ER_Visits_Per_100k, ca_data$ACUTE_HOSP_READMSN_CNT)
+ca_tests_readmissions <- calculate_correlation(ca_data$Tests_Per_100k, ca_data$ACUTE_HOSP_READMSN_CNT)
+ca_imaging_readmissions <- calculate_correlation(ca_data$Imaging_Per_100k, ca_data$ACUTE_HOSP_READMSN_CNT)
+
+# Calculate for TX
+tx_er_readmissions <- calculate_correlation(tx_data$ER_Visits_Per_100k, tx_data$ACUTE_HOSP_READMSN_CNT)
+tx_tests_readmissions <- calculate_correlation(tx_data$Tests_Per_100k, tx_data$ACUTE_HOSP_READMSN_CNT)
+tx_imaging_readmissions <- calculate_correlation(tx_data$Imaging_Per_100k, tx_data$ACUTE_HOSP_READMSN_CNT)
+
+# Combine results into a summary table
+results <- tibble(
+  State = c("CA", "CA", "CA", "TX", "TX", "TX"),
+  Factor = c("ER Visits", "Tests Per User", "Imaging Per User", 
+             "ER Visits", "Tests Per User", "Imaging Per User"),
+  Correlation = c(
+    ca_er_readmissions$Correlation, ca_tests_readmissions$Correlation, ca_imaging_readmissions$Correlation,
+    tx_er_readmissions$Correlation, tx_tests_readmissions$Correlation, tx_imaging_readmissions$Correlation
+  ),
+  P_Value = c(
+    ca_er_readmissions$P_Value, ca_tests_readmissions$P_Value, ca_imaging_readmissions$P_Value,
+    tx_er_readmissions$P_Value, tx_tests_readmissions$P_Value, tx_imaging_readmissions$P_Value
+  )
+)
+
+
+(results)
+
+
+
+
+#### Comparisons on readmission on factors of ER, Tests, and Imagaging
+
+
+
+
+# Add a State column to differentiate data
+ca_data$State <- "California"
+tx_data$State <- "Texas"
+
+# Combine both datasets
+combined_data <- rbind(ca_data, tx_data)
+
+# Calculate Readmission Rate (assuming data frame columns are correctly named)
+combined_data$Readmission_Rate <- combined_data$ACUTE_HOSP_READMSN_CNT / combined_data$BENES_TOTAL_CNT
+
+# Function to create a combined chart for a specific factor
+plot_combined <- function(data, x, y, x_label, y_label) {
+  ggplot(data, aes_string(x = x, y = y, color = "State")) +
+    geom_point(alpha = 0.6, size = 3) +
+    geom_smooth(method = "lm", se = FALSE, linetype = "dashed") +
+    labs(
+      title = paste("Comparison of", x_label, "vs.", y_label, "by State"),
+      x = x_label,
+      y = y_label
+    ) +
+    scale_color_manual(values = c("California" = "blue", "Texas" = "green")) +
+    theme_minimal()
+}
+
+# Create combined charts for each factor
+er_chart <- plot_combined(
+  combined_data, "BENES_ER_VISITS_CNT", "Readmission_Rate", 
+  "ER Visits", "Readmission Rate"
+)
+
+tests_chart <- plot_combined(
+  combined_data, "TESTS_MDCR_PYMT_PER_USER", "Readmission_Rate", 
+  "Spending On Tests Per User", "Readmission Rate"
+)
+
+imaging_chart <- plot_combined(
+  combined_data, "IMGNG_MDCR_PYMT_PER_USER", "Readmission_Rate", 
+  "Spending On Imaging Per User", "Readmission Rate"
+)
+
+# Function to create a combined chart with labels for each point
+plot_combined_with_labels <- function(data, x, y, x_label, y_label) {
+  ggplot(data, aes_string(x = x, y = y, color = "State")) +
+    geom_point(alpha = 0.6, size = 3) +
+    geom_smooth(method = "lm", se = FALSE, linetype = "dashed") +
+    geom_text(aes(label = round(Readmission_Rate, 2)), vjust = -1, size = 3, color = "black") + # Label the dots with the y-value (readmission rate)
+    labs(
+      title = paste("Comparison of", x_label, "vs.", y_label, "by State"),
+      x = x_label,
+      y = y_label
+    ) +
+    scale_color_manual(values = c("California" = "blue", "Texas" = "green")) +
+    theme_minimal()
+}
+
+# Create combined charts with labels for each factor
+er_chart_with_labels <- plot_combined_with_labels(
+  combined_data, "BENES_ER_VISITS_CNT", "Readmission_Rate", 
+  "ER Visits", "Readmission Rate"
+)
+
+tests_chart_with_labels <- plot_combined_with_labels(
+  combined_data, "TESTS_MDCR_PYMT_PER_USER", "Readmission_Rate", 
+  "Spending On Tests Per User", "Readmission Rate"
+)
+
+imaging_chart_with_labels <- plot_combined_with_labels(
+  combined_data, "IMGNG_MDCR_PYMT_PER_USER", "Readmission_Rate", 
+  "Spending On Imaging Per User", "Readmission Rate"
+)
+
+# Display the charts with a common legend
+ggarrange(er_chart_with_labels, tests_chart_with_labels, imaging_chart_with_labels, ncol = 1, nrow = 3, common.legend = TRUE, legend = "bottom")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+### Differentials per 100,000 beneficiaries based on ER, Tests, and Imaging ### 
+
+# Fisher's Z-transformation function
+fisher_z <- function(r) {
+  return(0.5 * log((1 + r) / (1 - r)))
+}
+
+# Function to compute z-test for correlation differences
+z_test_correlation_diff <- function(r1, r2, n1, n2) {
+  z1 <- fisher_z(r1)
+  z2 <- fisher_z(r2)
+  z_diff <- (z1 - z2) / sqrt((1 / (n1 - 3)) + (1 / (n2 - 3)))
+  return(z_diff)
+}
+
+# Sample sizes for CA and TX (assuming equal sample sizes for simplicity)
+n_ca <- nrow(ca_data)
+n_tx <- nrow(tx_data)
+
+# Calculate per 100,000 beneficiaries for each factor
+ca_data$ER_Visits_per_100k <- (ca_data$BENES_ER_VISITS_CNT / ca_data$BENES_TOTAL_CNT) * 100000
+ca_data$Tests_per_100k <- (ca_data$TESTS_MDCR_PYMT_PER_USER / ca_data$BENES_TOTAL_CNT) * 100000
+ca_data$Imaging_per_100k <- (ca_data$IMGNG_MDCR_PYMT_PER_USER / ca_data$BENES_TOTAL_CNT) * 100000
+
+tx_data$ER_Visits_per_100k <- (tx_data$BENES_ER_VISITS_CNT / tx_data$BENES_TOTAL_CNT) * 100000
+tx_data$Tests_per_100k <- (tx_data$TESTS_MDCR_PYMT_PER_USER / tx_data$BENES_TOTAL_CNT) * 100000
+tx_data$Imaging_per_100k <- (tx_data$IMGNG_MDCR_PYMT_PER_USER / tx_data$BENES_TOTAL_CNT) * 100000
+
+# Recalculate correlations for these new per 100k values
+ca_er_readmission_rate <- cor(ca_data$ER_Visits_per_100k, ca_data$ACUTE_HOSP_READMSN_CNT)
+ca_tests_readmission_rate <- cor(ca_data$Tests_per_100k, ca_data$ACUTE_HOSP_READMSN_CNT)
+ca_imaging_readmission_rate <- cor(ca_data$Imaging_per_100k, ca_data$ACUTE_HOSP_READMSN_CNT)
+
+tx_er_readmission_rate <- cor(tx_data$ER_Visits_per_100k, tx_data$ACUTE_HOSP_READMSN_CNT)
+tx_tests_readmission_rate <- cor(tx_data$Tests_per_100k, tx_data$ACUTE_HOSP_READMSN_CNT)
+tx_imaging_readmission_rate <- cor(tx_data$Imaging_per_100k, tx_data$ACUTE_HOSP_READMSN_CNT)
+
+# Perform z-test for each factor's correlation
+er_diff <- z_test_correlation_diff(ca_er_readmission_rate, tx_er_readmission_rate, n_ca, n_tx)
+tests_diff <- z_test_correlation_diff(ca_tests_readmission_rate, tx_tests_readmission_rate, n_ca, n_tx)
+imaging_diff <- z_test_correlation_diff(ca_imaging_readmission_rate, tx_imaging_readmission_rate, n_ca, n_tx)
+
+# Output the z-scores for each factor
+print(paste("ER Visits z-diff: ", er_diff))
+print(paste("Tests Per User z-diff: ", tests_diff))
+print(paste("Imaging Per User z-diff: ", imaging_diff))
+
+# Optionally, you can calculate the p-values for each z-diff
+# Assuming a two-tailed test, we can compute the p-value as follows:
+p_value_er <- 2 * (1 - pnorm(abs(er_diff)))
+p_value_tests <- 2 * (1 - pnorm(abs(tests_diff)))
+p_value_imaging <- 2 * (1 - pnorm(abs(imaging_diff)))
+
+# Output the p-values
+print(paste("P-value for ER Visits: ", p_value_er))
+print(paste("P-value for Tests Per User: ", p_value_tests))
+print(paste("P-value for Imaging Per User: ", p_value_imaging))
+
+
+
+
+
+
+
+
+
+
+
+
